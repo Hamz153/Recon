@@ -1,0 +1,113 @@
+#!/bin/bash
+
+wordlist="/home/hack/tools/SecLists/Discovery/DNS/all.txt"
+resolvers="/root/resolvers.txt"
+#Directory making and replacing output files are coming soon
+
+# Get IP address or file name containing IPs
+read -p "Enter IP address or file name containing IPs: " input
+
+# Run subfinder, assetfinder, and amass on each IP and store results
+if [[ -f "$input" ]]; then
+  for ip in $(cat $input); do
+    subfinder -d $ip >> subfinder_$ip.txt
+    assetfinder $ip >> assetfinder_$ip.txt
+    amass enum -passive -d $ip >> amass_$ip.txt
+    shuffledns -d $domain -w $wordlist -r $resolvers >> shuffledns_$ip.txt
+  done
+else
+  ip=$input
+  subfinder -d $ip >> subfinder_$ip.txt
+  assetfinder $ip >> assetfinder_$ip.txt
+  amass enum -passive -d $ip >> amass_$ip.txt
+fi
+
+# Concatenate all IPs and sort them
+cat *.txt | sort -u > All.txt
+
+# Shuffle DNS to resolve IPs and URLs
+shuffledns -d $ip -list All.txt -o resolved.txt
+
+# Find response codes using httpx and store results in files with response code names
+for code in 200 400 401 403 500 505 301 300 302; do
+  httpx -l resolved.txt -silent -status-code -threads 200 -follow-redirects  -mc $code -o $code.txt
+done
+#httpx simple file with all the urls and status code
+cat resolved.txt | httpx  -threads 200 -o All_httpx.txt
+# doing tls probing for ssl data
+cat resolved.txt | httpx -tls-probe  -threads 200 -sr httpx.txt
+#doing wayback url data fetching
+cat resolved.txt | waybackurls |tee temp.txt
+#removing junk files from wayback data
+cat temp.txt | egrep -v "\.woff|\.woff2|\.tiff|\.tif|\.pdf|\.txt|\.ttf|\.svg|\.png|\.jpeg|\.jpg|\.eot|\.ioc|\.css|\.ico" | sed 's/:80//g' | sort -u >> valid_wayback_url.txt
+
+#Performing ffuf for validating the 200 ok sites from wayback data
+ffuf -c -t 100 -u "FUZZ" -w valid_wayback_url.txt -mc 200 -of csv -o temp.txt 
+cat temp.txt |grep http | awk -F "," '{print $1}' >>Valid_Ffuf.txt
+#rm /home/Documents/$domain/Recon/Ffuf/After.ffuf.temp.url 
+
+#Performing gf-pattern for vulnerable parameters
+
+gf xss home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/xss.url
+
+gf debug_logic home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/debug_logic.url
+
+gf img-traversal home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/img-traversal.url
+
+gf interestingparams home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/interestingparams.url
+
+gf jsvar home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/jsvar.url
+
+gf rce home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/rce.url
+
+gf sqli home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/sqli.url
+
+gf ssti home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/ssti.url
+
+gf idor home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/idor.url
+
+gf interestingEXT home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/interestingEXT.url
+
+gf interestingsubs home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/interestingsubs.url
+
+gf lfi home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/lfi.url
+
+gf redirect home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/redirect.url
+
+gf ssrf home/Documents/$domain/Recon/Ffuf/Valid.Ffuf.url | tee /home/Documents/$domain/Recon/GF-Patterns/ssrf.url
+
+# performing unfurl for all the pathes and parameters website using or was using
+
+cat valid_wayback_url.txt | unfurl path -u >>paths.txt
+
+cat valid_wayback_url.txt | unfurl keys -u >>params.txt
+
+cat valid_wayback_url.txt | unfurl keypairs -u >>pairs.txt
+
+# performing massdns for converting urls to ip for nmap or naabu to use
+massdns  -r $resolvers -t A -o S -w temp-ips.txt esolved.txt
+
+gf ip temp-ips.txt |awk -F ":" '{print $3}'|sort -u >> valid_Ips.txt
+
+
+#Performing Port Scannig with Naabu
+
+naabu -list valid_Ips.txt -r $resolvers -tp 1000 -o initia_portscan.txt
+naabu -list valid_Ips.txt -r $resolvers -p- -o Full_portscan.txt 
+
+#Performing crawling with Katana 
+
+katana -list All_httpx.txt -d 5 -o katana.txt
+
+httpx -l katana.txt -mc 200 -follow-redirects -o 200_katana.txt
+
+httpx -l katana.txt -mc 403 -follow-redirects -o 403_katana.txt
+
+#Performing LFI in 403 links
+
+#dotdotpwn
+
+
+#Performing nuclei for vulnerabilities
+
+nuclei -l 200.txt -o 200.txt -t /home/abdullah/.local/nuclei-templates/http/  
