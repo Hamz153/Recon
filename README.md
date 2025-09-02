@@ -1,4 +1,4 @@
-# Automated Cybersecurity Reconnaissance Script
+# Auto-Recon
 
 This bash script automates various reconnaissance tasks in cybersecurity projects, streamlining the process of gathering information about a target. It integrates popular tools and techniques for subdomain enumeration, DNS resolution, HTTP response analysis, URL parsing, directory brute-forcing, IP conversion, port scanning, website crawling, and vulnerability scanning.
 
